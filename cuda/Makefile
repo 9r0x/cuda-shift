@@ -1,13 +1,23 @@
 CC = nvcc
-CFLAGS = -g --dopt on -O2
+CFLAGS = -g --dopt on -O2 -Xcompiler -fopenmp
 
 SRC = $(wildcard *.cu)
-BIN = $(patsubst %.cu,bin/%,$(SRC))
+OBJ = $(SRC:%.cu=bin/%.o)
+BIN = bin/tiltshift
+
+ifeq ($(debug),1)
+	CFLAGS += -DDEBUG
+endif
+
+.PHONY: all clean
 
 all: bin $(BIN)
 
-bin/%: %.cu
-	$(CC) $(CFLAGS) $< -o $@
+$(BIN): $(OBJ)
+	$(CC) $(CFLAGS) $^ -o $@
+
+bin/%.o: %.cu
+	$(CC) $(CFLAGS) -c $< -o $@
 
 bin:
 	mkdir -p bin
