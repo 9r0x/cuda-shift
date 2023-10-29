@@ -16,11 +16,31 @@ Shukai Ni, Jiayu Zheng
 
 **TODO**
 
+# Build
+
+```shell
+cd cuda
+make -j`nproc`
+# debug build
+# debug=1 make -j`nproc`
+```
+
 # Usage
 
 ```
-./tiltshift <input> <output> <radius> <sigma>
+Usage: ./tiltshift <image_path> <kernel_dim> <sigma> <output_image>
+Arguments:
+  <input_path>    Path to the input image. Supported formats are PNG and JPEG.
+  <kernel_radius> Dimension of the Gaussian kernel radius, center pixel included.
+  <sigma>         Standard deviation of the Gaussian kernel. Must be a positive number.
+  <output_path>  Path to the output image. Format is determined by the file extension.
 ```
+
+# Global Workflow
+
+1. Extract Near, Mid, Far region masks from the input image
+2. Apply Gaussian blur to each mask
+3. Blend the blurred masks together to get the final image
 
 # Gaussian kernel
 
@@ -54,3 +74,8 @@ Like before, we could use OpenMP to normalize the Gaussian kernel in parallel. I
 - [ ] Gaussian kernel CUDA
 - [ ] Gaussian dot product CUDA
 - [ ] Gaussian warp shared memory CUDA
+- [ ] Support 16-bit images
+
+# References
+
+- [stb_image](https://github.com/nothings/stb/) for image loading and saving

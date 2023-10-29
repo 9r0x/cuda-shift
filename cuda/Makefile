@@ -1,5 +1,5 @@
 CC = nvcc
-CFLAGS = -g --dopt on -O2 -Xcompiler -fopenmp
+CFLAGS = -g --dopt on -O3 -Xcompiler -fopenmp
 
 SRC = $(wildcard *.cu)
 OBJ = $(SRC:%.cu=bin/%.o)
