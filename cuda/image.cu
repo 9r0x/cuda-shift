@@ -7,7 +7,7 @@
 
 #define TO_LOWER(c) ((c) >= 'A' && (c) <= 'Z') ? (c) + 32 : (c)
 
-char *getFileExtension(const char *path)
+__host__ char *getFileExtension(const char *path)
 {
     const char *lastPeriod = strrchr(path, '.');
     if (!lastPeriod || lastPeriod == path)
@@ -23,10 +23,10 @@ char *getFileExtension(const char *path)
     return extension;
 }
 
-unsigned char *load_image(const char *filename,
-                          size_t *width,
-                          size_t *height,
-                          size_t *channels)
+__host__ unsigned char *load_image(const char *filename,
+                                   size_t *width,
+                                   size_t *height,
+                                   size_t *channels)
 {
     int w, h, c;
     unsigned char *img = stbi_load(filename, &w, &h, &c, 0);
@@ -41,11 +41,11 @@ unsigned char *load_image(const char *filename,
     return img;
 }
 
-int save_image(const char *filename,
-               unsigned char *img,
-               size_t width,
-               size_t height,
-               size_t channels)
+__host__ int save_image(const char *filename,
+                        unsigned char *img,
+                        size_t width,
+                        size_t height,
+                        size_t channels)
 {
     char *ext = getFileExtension(filename);
     if (!ext)
@@ -74,43 +74,7 @@ int save_image(const char *filename,
     }
 }
 
-void free_image(unsigned char *img)
+__host__ void free_image(unsigned char *img)
 {
     stbi_image_free(img);
-}
-
-double *to_cwh(unsigned char *input, int width, int height, int channels)
-{
-    double *output = new double[width * height * channels];
-    for (int y = 0; y < height; ++y)
-    {
-        for (int x = 0; x < width; ++x)
-        {
-            for (int ch = 0; ch < channels; ++ch)
-            {
-                int oldIdx = (y * width + x) * channels + ch;
-                int newIdx = ch * width * height + y * width + x;
-                output[newIdx] = (double)(input[oldIdx]) / 255.0;
-            }
-        }
-    }
-    return output;
-}
-
-unsigned char *to_whc(double *input, int width, int height, int channels)
-{
-    unsigned char *output = new unsigned char[width * height * channels];
-    for (int y = 0; y < height; ++y)
-    {
-        for (int x = 0; x < width; ++x)
-        {
-            for (int ch = 0; ch < channels; ++ch)
-            {
-                int oldIdx = ch * width * height + y * width + x;
-                int newIdx = (y * width + x) * channels + ch;
-                output[newIdx] = (unsigned char)(fmin(fmax(input[oldIdx] * 255.0, 0.0), 255.0) + 0.5);
-            }
-        }
-    }
-    return output;
 }
