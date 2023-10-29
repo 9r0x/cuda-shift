@@ -70,10 +70,16 @@ Like before, we could use OpenMP to normalize the Gaussian kernel in parallel. I
 # TODO
 
 - [x] Manual effect with GIMP
-- [ ] Python effect
-- [ ] Gaussian kernel CUDA
-- [ ] Gaussian dot product CUDA
-- [ ] Gaussian warp shared memory CUDA
+- [x] Python effect
+- [x] kernel generation with OpenMP
+- [x] 2D Convolution in CUDA
+- [x] Rectangle mask generation with OpenMP
+- [x] Mask application in CUDA
+- [ ] Per mask Gaussian blur in CUDA
+- [ ] Mask blending in CUDA
+
+- [ ] Improve per pixel dot product in CUDA
+- [ ] Create small vs large CUDA function for different kernel sizes
 - [ ] Support 16-bit images
 
 # References

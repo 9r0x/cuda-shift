@@ -1,5 +1,6 @@
 #include "conv.h"
 
+/* Convert WHC to CWH, then map each 0-255 value to 0.0-1.0 */
 __host__ double *to_cwh(unsigned char *input, int width, int height, int channels)
 {
     double *output;
@@ -21,6 +22,7 @@ __host__ double *to_cwh(unsigned char *input, int width, int height, int channel
     return output;
 }
 
+/* Map each 0.0-1.0 value to 0-255, then convert CWH to WHC */
 __host__ unsigned char *to_whc(double *input, int width, int height, int channels)
 {
     unsigned char *output = new unsigned char[width * height * channels];
@@ -44,12 +46,53 @@ __host__ unsigned char *to_whc(double *input, int width, int height, int channel
 }
 
 /*
+ Generate a 2D mask of size width x height, with 1.0 in the rectangle
+ defined by top, bottom, left, right(boundary inclusive), and 0.0 elsewhere
+ bottom = 0 means bottom = height - 1
+ right = 0 means right = width - 1
+*/
+__global__ void gen_rectangle_mask(size_t width, size_t height,
+                                   size_t left, size_t right,
+                                   size_t top, size_t bottom,
+                                   double alpha, double *__restrict__ mask)
+{
+    unsigned int x = blockIdx.y * blockDim.x + threadIdx.x;
+    unsigned int y = blockIdx.z * blockDim.y + threadIdx.y;
+
+    if ((x < width) && (y < height))
+    {
+        if ((x >= left) && (x <= right) && (y >= top) && (y <= bottom))
+            mask[TO_IDX_2(y, x, width)] = alpha;
+        else
+            mask[TO_IDX_2(y, x, width)] = 0.0;
+    }
+}
+
+/* Apply a 2D mask to an image,channel by channel */
+__global__ void apply_mask(double *__restrict__ input,
+                           double *__restrict__ mask,
+                           double *__restrict__ output,
+                           size_t width, size_t height, size_t channels)
+{
+    unsigned int c = blockIdx.x;
+    unsigned int x = blockIdx.y * blockDim.x + threadIdx.x;
+    unsigned int y = blockIdx.z * blockDim.y + threadIdx.y;
+
+    if ((x < width) && (y < height))
+    {
+        int input_idx = TO_IDX_3(c, y, x, height, width);
+        int mask_idx = TO_IDX_2(y, x, width);
+        output[input_idx] = input[input_idx] * mask[mask_idx];
+    }
+}
+
+/*
  Performs a square 2D convolution with padding = 0, stride = 1
  Each image is array of channels x width x height
- */
-__global__ void conv2D(double *input, double *output,
+*/
+__global__ void conv2D(double *__restrict__ input, double *__restrict__ output,
                        size_t in_width, size_t in_height, size_t channels,
-                       double *kernel, size_t kernel_radius)
+                       double *__restrict__ kernel, size_t kernel_radius)
 {
     unsigned int c = blockIdx.x;
     // x and y are width and height of the input image
@@ -65,6 +108,7 @@ __global__ void conv2D(double *input, double *output,
     if ((x >= kernel_offset) && (x < in_width - kernel_offset) &&
         (y >= kernel_offset) && (y < in_height - kernel_offset))
     {
+        // TODO optimize shared memory access
         double result = 0.0;
         for (int ky = -kernel_offset; ky <= kernel_offset; ++ky)
         {

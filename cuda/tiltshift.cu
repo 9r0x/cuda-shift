@@ -31,11 +31,14 @@ int main(int argc, char **argv)
     size_t channels, kernel_radius, kernel_dim;
     // No. of total bytes on the device
     size_t kernel_bytes, in_bytes, out_bytes;
-    double sigma;
     const char *input_path, *output_path;
     unsigned char *image;
+    double sigma;
     double *kernel_h, *in_h, *out_h;
     double *kernel_d, *in_d, *out_d;
+
+    double *near_mask_d, *mid_mask_d, *far_mask_d;
+    double *near_out_d, *mid_out_d, *far_out_d;
 
     if (__glibc_unlikely(argc != 5))
     {
@@ -100,7 +103,7 @@ int main(int argc, char **argv)
     }
     free_image(image);
 
-    // Apply gaussian filter
+    // Prepare GPU
     dim3 blockSize(32, 32);
     dim3 gridSize(channels,
                   (in_width + blockSize.x - 1) / blockSize.x,
@@ -116,12 +119,48 @@ int main(int argc, char **argv)
     catch_error(cudaMemcpy(kernel_d, kernel_h, kernel_bytes, cudaMemcpyHostToDevice));
     catch_error(cudaMemcpy(in_d, in_h, in_bytes, cudaMemcpyHostToDevice));
 
+    // Generate near, mid, far masks
+    catch_error(cudaMalloc((void **)&near_mask_d, in_width * in_height * sizeof(double)));
+    catch_error(cudaMalloc((void **)&mid_mask_d, in_width * in_height * sizeof(double)));
+    catch_error(cudaMalloc((void **)&far_mask_d, in_width * in_height * sizeof(double)));
+
+    catch_error(cudaMalloc((void **)&near_out_d, in_bytes));
+    catch_error(cudaMalloc((void **)&mid_out_d, in_bytes));
+    catch_error(cudaMalloc((void **)&far_out_d, in_bytes));
+
+    printf("[+] Memory allocated on device.\n");
+
+    // FIX ME
+    gen_rectangle_mask<<<gridSize, blockSize>>>(in_width, in_height,
+                                                0, 7978, 0, 2000,
+                                                1, near_mask_d);
+    gen_rectangle_mask<<<gridSize, blockSize>>>(in_width, in_height,
+                                                0, 7978, 2001, 4000,
+                                                1, mid_mask_d);
+    gen_rectangle_mask<<<gridSize, blockSize>>>(in_width, in_height,
+                                                0, 7978, 4001, 6000,
+                                                1, far_mask_d);
+    catch_error(cudaDeviceSynchronize());
+    printf("[+] Masks generated.\n");
+
+    apply_mask<<<gridSize, blockSize>>>(in_d, near_mask_d, near_out_d,
+                                        in_width, in_height, channels);
+    apply_mask<<<gridSize, blockSize>>>(in_d, mid_mask_d, mid_out_d,
+                                        in_width, in_height, channels);
+    apply_mask<<<gridSize, blockSize>>>(in_d, far_mask_d, far_out_d,
+                                        in_width, in_height, channels);
+    catch_error(cudaDeviceSynchronize());
+    printf("[+] Masks applied.\n");
+
+    // Apply gaussian
     conv2D<<<gridSize, blockSize>>>(in_d, out_d,
                                     in_width, in_height, channels,
                                     kernel_d, kernel_radius);
 
     catch_error(cudaMallocHost((void **)&out_h, out_bytes));
-    cudaMemcpy(out_h, out_d, out_bytes, cudaMemcpyDeviceToHost);
+    catch_error(cudaDeviceSynchronize());
+    catch_error(cudaMemcpy(out_h, out_d, out_bytes, cudaMemcpyDeviceToHost));
+    printf("[+] Convolution done.\n");
 
 #ifdef DEBUG
     for (auto i = 0; i < kernel_dim; i++)
