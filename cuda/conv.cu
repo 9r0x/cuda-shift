@@ -1,7 +1,7 @@
 #include "conv.h"
 
-/* Convert WHC to CWH, then map each 0-255 value to 0.0-1.0 */
-__host__ double *to_cwh(unsigned char *input, int width, int height, int channels)
+/* Convert HWC to CHW, then map each 0-255 value to 0.0-1.0 */
+__host__ double *to_chw(unsigned char *input, int height, int width, int channels)
 {
     double *output;
     catch_error(cudaMallocHost((void **)&output,
@@ -22,8 +22,8 @@ __host__ double *to_cwh(unsigned char *input, int width, int height, int channel
     return output;
 }
 
-/* Map each 0.0-1.0 value to 0-255, then convert CWH to WHC */
-__host__ unsigned char *to_whc(double *input, int width, int height, int channels)
+/* Map each 0.0-1.0 value to 0-255, then convert CHW to HWC */
+__host__ unsigned char *to_hwc(double *input, int height, int width, int channels)
 {
     unsigned char *output = new unsigned char[width * height * channels];
 #pragma omp parallel for collapse(3)
@@ -35,7 +35,10 @@ __host__ unsigned char *to_whc(double *input, int width, int height, int channel
             {
                 int oldIdx = TO_IDX_3(ch, y, x, height, width);
                 int newIdx = TO_IDX_3(y, x, ch, width, channels);
-                output[newIdx] = (unsigned char)(fmin(fmax(input[oldIdx] * 255.0,
+                double value = input[oldIdx];
+                value = fmin(value, 1.0);
+                value = fmax(value, 0.0);
+                output[newIdx] = (unsigned char)(fmin(fmax(value * 255.0,
                                                            0.0),
                                                       255.0) +
                                                  0.5);
@@ -51,9 +54,9 @@ __host__ unsigned char *to_whc(double *input, int width, int height, int channel
  bottom = 0 means bottom = height - 1
  right = 0 means right = width - 1
 */
-__global__ void gen_rectangle_mask(size_t width, size_t height,
-                                   size_t left, size_t right,
+__global__ void gen_rectangle_mask(size_t height, size_t width,
                                    size_t top, size_t bottom,
+                                   size_t left, size_t right,
                                    double alpha, double *__restrict__ mask)
 {
     unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
@@ -68,30 +71,14 @@ __global__ void gen_rectangle_mask(size_t width, size_t height,
     }
 }
 
-/* Apply a 2D mask to an image,channel by channel */
-__global__ void apply_mask(double *__restrict__ input,
-                           double *__restrict__ mask,
-                           double *__restrict__ output,
-                           size_t width, size_t height, size_t channels)
-{
-    unsigned int c = blockIdx.x;
-    unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
-    unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
-
-    if ((x < width) && (y < height))
-    {
-        int input_idx = TO_IDX_3(c, y, x, height, width);
-        int mask_idx = TO_IDX_2(y, x, width);
-        output[input_idx] = input[input_idx] * mask[mask_idx];
-    }
-}
-
 /*
  Performs a square 2D convolution with padding = 0, stride = 1
  Each image is array of channels x width x height
 */
-__global__ void conv2D(double *__restrict__ input, double *__restrict__ output,
-                       size_t in_width, size_t in_height, size_t channels,
+__global__ void conv2D(double *__restrict__ input,
+                       double *__restrict__ mask,
+                       double *__restrict__ output,
+                       size_t height, size_t width,
                        double *__restrict__ kernel, size_t kernel_radius)
 {
     unsigned int c = blockIdx.x;
@@ -100,32 +87,65 @@ __global__ void conv2D(double *__restrict__ input, double *__restrict__ output,
     unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
     size_t kernel_dim = (kernel_radius << 1) - 1;
     // Since we start from negative offset, use int
-    int kernel_offset = kernel_radius - 1;
-    size_t out_width = in_width - kernel_dim + 1;
-    size_t out_height = in_height - kernel_dim + 1;
+    ssize_t kernel_offset = kernel_radius - 1;
 
-    // Confine to output image dimensions
-    if ((x >= kernel_offset) && (x < in_width - kernel_offset) &&
-        (y >= kernel_offset) && (y < in_height - kernel_offset))
+    if (x < width && y < height)
     {
-        // TODO optimize shared memory access
-        double result = 0.0;
-        for (int ky = -kernel_offset; ky <= kernel_offset; ++ky)
+        int output_idx = TO_IDX_3(c, y, x, height, width);
+        if (mask[TO_IDX_2(y, x, width)] == 0.0)
         {
-            for (int kx = -kernel_offset; kx <= kernel_offset; ++kx)
-            {
-                int nx = x + kx;
-                int ny = y + ky;
-
-                int input_idx = TO_IDX_3(c, ny, nx, in_height, in_width);
-                int kernel_idx = TO_IDX_2(ky + kernel_offset, kx + kernel_offset, kernel_dim);
-                result += input[input_idx] * kernel[kernel_idx];
-            }
+            output[output_idx] = 0.0;
+            return;
         }
 
-        y -= kernel_offset;
-        x -= kernel_offset;
-        int output_idx = TO_IDX_3(c, y, x, out_height, out_width);
-        output[output_idx] = result;
+        double pixel_sum = 0.0;
+        double normalization = 0.0;
+
+        for (ssize_t ky = -kernel_offset; ky <= kernel_offset; ++ky)
+        {
+            ssize_t ny = (ssize_t)y + ky;
+            if ((ny < 0) || (ny >= height))
+                continue;
+
+            for (ssize_t kx = -kernel_offset; kx <= kernel_offset; ++kx)
+            {
+                ssize_t nx = (ssize_t)x + kx;
+                if ((nx < 0) || (nx >= width))
+                    continue;
+
+                size_t input_idx = TO_IDX_3(c, (size_t)ny, (size_t)nx,
+                                            height, width);
+                size_t kernel_idx = TO_IDX_2((size_t)(ky + kernel_offset),
+                                             (size_t)(kx + kernel_offset),
+                                             kernel_dim);
+                size_t mask_idx = TO_IDX_2((size_t)ny, (size_t)nx, width);
+                double coeff = kernel[kernel_idx] * mask[mask_idx];
+
+                pixel_sum += coeff * input[input_idx];
+                normalization += coeff;
+            }
+        }
+        output[output_idx] = normalization ? pixel_sum / normalization : 0.0;
+    }
+}
+
+/* Blend multiple images together */
+__global__ void blend(double **__restrict__ input,
+                      double *__restrict__ output,
+                      size_t height, size_t width, size_t num)
+{
+    unsigned int c = blockIdx.x;
+    unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
+    unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
+
+    if (x < width && y < height)
+    {
+        double pixel_sum = 0.0;
+        size_t index = TO_IDX_3(c, y, x, height, width);
+        for (size_t i = 0; i < num; ++i)
+        {
+            pixel_sum += input[i][index];
+        }
+        output[index] = pixel_sum;
     }
 }

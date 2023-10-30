@@ -67,6 +67,19 @@ However, due to the discrete nature of images and the approximation in the Gauss
 
 Like before, we could use OpenMP to normalize the Gaussian kernel in parallel. In particular, we could use the reduction clause to compute the sum of all elements in the kernel.
 
+## Normalization for advanced masks
+
+In the goal state, user should be able to pass in a mask to specify the region of interest. In this case, the normalization should be done differently. Instead of normalizing the entire kernel, we should only normalize the kernel during the application. This way the kernel can be normalized based on the sum of brightness of the pixels in the region of interest.
+K is the kernel matrix, M is the neighboring mask, N reprents neighboring pixels.
+
+$$p_{ij} = \sum K_{ij} \cdot M_{ij} \cdot N_{ij}$$
+
+For center pixel $p$ have similar brightness as the original image, we need to perform coefficient normalization:
+
+$$K_{ij} = \frac{\sum K_{ij} \cdot M_{ij} \cdot N_{ij}}{\sum K_{ij} \cdot M_{ij}}$$
+
+This solution avoids the problem of padding at the edge of the image because the edge will have one-sided pixels. It also adds support for arbitrary mask shapes and values.
+
 # TODO
 
 - [x] Manual effect with GIMP
@@ -75,8 +88,10 @@ Like before, we could use OpenMP to normalize the Gaussian kernel in parallel. I
 - [x] 2D Convolution in CUDA
 - [x] Rectangle mask generation with OpenMP
 - [x] Mask application in CUDA
-- [ ] Per mask Gaussian blur in CUDA
-- [ ] Mask blending in CUDA
+- [x] Per mask Gaussian blur in CUDA
+- [x] Mask blending in CUDA
+- [x] Refactored CUDA functions
+- [ ] Mask-based weighted blending, making sure the overlapping region is blended correctly
 
 - [ ] Improve per pixel dot product in CUDA
 - [ ] Create small vs large CUDA function for different kernel sizes

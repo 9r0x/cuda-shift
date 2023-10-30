@@ -27,10 +27,10 @@ __host__ void printUsage(const char *programName)
 int main(int argc, char **argv)
 {
 
-    size_t in_width, in_height, out_width, out_height;
+    size_t width, height;
     size_t channels, kernel_radius, kernel_dim;
     // No. of total bytes on the device
-    size_t kernel_bytes, in_bytes, out_bytes;
+    size_t kernel_bytes, image_bytes, mask_bytes;
     const char *input_path, *output_path;
     unsigned char *image;
     double sigma;
@@ -39,6 +39,11 @@ int main(int argc, char **argv)
 
     double *near_mask_d, *mid_mask_d, *far_mask_d;
     double *near_out_d, *mid_out_d, *far_out_d;
+
+    // Although this is a on-host array
+    // its elements are pointers to device memory
+    double *in_blend_h[3];
+    double **in_blend_d;
 
     if (__glibc_unlikely(argc != 5))
     {
@@ -65,7 +70,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    image = load_image(input_path, &in_width, &in_height, &channels);
+    printf("\n[ ] Loading image ...\n");
+    image = load_image(input_path, &height, &width, &channels);
     if (__glibc_unlikely(!image))
     {
         fprintf(stderr, "[!] Error loading image.\n");
@@ -73,94 +79,16 @@ int main(int argc, char **argv)
     }
     printf("[+] Image loaded from %s\n", input_path);
 
-    if (__glibc_unlikely(in_width < kernel_dim || in_height < kernel_dim))
-    {
-        fprintf(stderr, "[!] Width or height is smaller than kernel dimension.\n");
-        return 1;
-    }
+    mask_bytes = width * height * sizeof(double);
+    image_bytes = mask_bytes * channels;
 
-    in_bytes = in_width * in_height * channels * sizeof(double);
-    // apply gaussian will lose the padding
-    out_width = in_width - kernel_dim + 1;
-    out_height = in_height - kernel_dim + 1;
-    out_bytes = out_width * out_height * channels * sizeof(double);
+    printf("[*] Kernel dimensions: %d x %d \n", kernel_dim, kernel_dim);
+    printf("[*] Image dimensions(HWC): %d x %d x %d\n", height, width, channels);
 
-    printf("[+] Kernel dimensions: %d x %d \n", kernel_dim, kernel_dim);
-    printf("[+] Input dimensions: %d x %d x %d\n", in_width, in_height, channels);
-    printf("[+] Output dimensions: %d x %d x %d\n", out_width, out_height, channels);
-
+    printf("\n[ ] Generating Gaussian kernel ...\n");
     kernel_h = gen_gaussian_kernel(kernel_radius, sigma);
     mirror_gaussian_kernel(kernel_radius, kernel_h);
     normalize_gaussian_kernel(kernel_radius, kernel_h);
-
-    // Convert whc to cwh
-    in_h = to_cwh(image, in_width, in_height, channels);
-    if (__glibc_unlikely(!in_h))
-    {
-        free_image(image);
-        fprintf(stderr, "[!] Error converting image to cwh format.\n");
-        return 1;
-    }
-    free_image(image);
-
-    // Prepare GPU
-    dim3 blockSize(32, 32);
-    dim3 gridSize(channels,
-                  (in_height + blockSize.x - 1) / blockSize.x,
-                  (in_width + blockSize.y - 1) / blockSize.y);
-
-    printf("[+] Grid size: %d, %d, %d\n", gridSize.x, gridSize.y, gridSize.z);
-    printf("[+] Block size: %d, %d\n", blockSize.x, blockSize.y);
-
-    catch_error(cudaMalloc((void **)&kernel_d, kernel_bytes));
-    catch_error(cudaMalloc((void **)&in_d, in_bytes));
-    catch_error(cudaMalloc((void **)&out_d, out_bytes));
-
-    catch_error(cudaMemcpy(kernel_d, kernel_h, kernel_bytes, cudaMemcpyHostToDevice));
-    catch_error(cudaMemcpy(in_d, in_h, in_bytes, cudaMemcpyHostToDevice));
-
-    // Generate near, mid, far masks
-    catch_error(cudaMalloc((void **)&near_mask_d, in_width * in_height * sizeof(double)));
-    catch_error(cudaMalloc((void **)&mid_mask_d, in_width * in_height * sizeof(double)));
-    catch_error(cudaMalloc((void **)&far_mask_d, in_width * in_height * sizeof(double)));
-
-    catch_error(cudaMalloc((void **)&near_out_d, in_bytes));
-    catch_error(cudaMalloc((void **)&mid_out_d, in_bytes));
-    catch_error(cudaMalloc((void **)&far_out_d, in_bytes));
-
-    printf("[+] Memory allocated on device.\n");
-
-    // FIX ME
-    gen_rectangle_mask<<<gridSize, blockSize>>>(in_width, in_height,
-                                                0, 7978, 0, 2000,
-                                                1, near_mask_d);
-    gen_rectangle_mask<<<gridSize, blockSize>>>(in_width, in_height,
-                                                0, 7978, 2001, 4000,
-                                                1, mid_mask_d);
-    gen_rectangle_mask<<<gridSize, blockSize>>>(in_width, in_height,
-                                                0, 7978, 4001, 6000,
-                                                1, far_mask_d);
-    catch_error(cudaDeviceSynchronize());
-    printf("[+] Masks generated.\n");
-
-    apply_mask<<<gridSize, blockSize>>>(in_d, near_mask_d, near_out_d,
-                                        in_width, in_height, channels);
-    apply_mask<<<gridSize, blockSize>>>(in_d, mid_mask_d, mid_out_d,
-                                        in_width, in_height, channels);
-    apply_mask<<<gridSize, blockSize>>>(in_d, far_mask_d, far_out_d,
-                                        in_width, in_height, channels);
-    catch_error(cudaDeviceSynchronize());
-    printf("[+] Masks applied.\n");
-
-    // Apply gaussian
-    conv2D<<<gridSize, blockSize>>>(in_d, out_d,
-                                    in_width, in_height, channels,
-                                    kernel_d, kernel_radius);
-
-    catch_error(cudaMallocHost((void **)&out_h, out_bytes));
-    catch_error(cudaDeviceSynchronize());
-    catch_error(cudaMemcpy(out_h, out_d, out_bytes, cudaMemcpyDeviceToHost));
-    printf("[+] Convolution done.\n");
 
 #ifdef DEBUG
     for (auto i = 0; i < kernel_dim; i++)
@@ -170,11 +98,94 @@ int main(int argc, char **argv)
         printf("\n");
     }
 #endif
+    printf("[+] Kernel generated.\n");
 
+    printf("\n[ ] Converting image to cwh format ...\n");
+    in_h = to_chw(image, height, width, channels);
+    if (__glibc_unlikely(!in_h))
+    {
+        free_image(image);
+        fprintf(stderr, "[!] Error converting image to cwh format.\n");
+        return 1;
+    }
+    free_image(image);
+    printf("[+] Image converted.\n");
+
+    printf("\n[ ] Allocating memory on device ...\n");
+    dim3 blockSize(32, 32);
+    dim3 gridSize(channels,
+                  (height + blockSize.x - 1) / blockSize.x,
+                  (width + blockSize.y - 1) / blockSize.y);
+
+    printf("[*] Grid size: %d, %d, %d\n", gridSize.x, gridSize.y, gridSize.z);
+    printf("[*] Block size: %d, %d\n", blockSize.x, blockSize.y);
+
+    catch_error(cudaMallocHost((void **)&out_h, image_bytes));
+
+    catch_error(cudaMalloc((void **)&kernel_d, kernel_bytes));
+    catch_error(cudaMalloc((void **)&in_d, image_bytes));
+    catch_error(cudaMalloc((void **)&out_d, image_bytes));
+
+    catch_error(cudaMemcpy(kernel_d, kernel_h, kernel_bytes, cudaMemcpyHostToDevice));
+    catch_error(cudaMemcpy(in_d, in_h, image_bytes, cudaMemcpyHostToDevice));
+
+    catch_error(cudaMalloc((void **)&near_mask_d, mask_bytes));
+    catch_error(cudaMalloc((void **)&mid_mask_d, mask_bytes));
+    catch_error(cudaMalloc((void **)&far_mask_d, mask_bytes));
+
+    catch_error(cudaMalloc((void **)&near_out_d, image_bytes));
+    catch_error(cudaMalloc((void **)&mid_out_d, image_bytes));
+    catch_error(cudaMalloc((void **)&far_out_d, image_bytes));
+    printf("[+] Memory allocated on device.\n");
+
+    printf("\n[ ] Generating masks ...\n");
+    gen_rectangle_mask<<<gridSize, blockSize>>>(height, width,
+                                                0, 60, 0, 600,
+                                                1, near_mask_d);
+    gen_rectangle_mask<<<gridSize, blockSize>>>(height, width,
+                                                91, 200, 0, 600,
+                                                1, mid_mask_d);
+    gen_rectangle_mask<<<gridSize, blockSize>>>(height, width,
+                                                201, 336, 0, 600,
+                                                1, far_mask_d);
+    catch_error(cudaDeviceSynchronize());
+    printf("[+] Masks generated.\n");
+
+    printf("\n[ ] Applying convolution ...\n");
+    conv2D<<<gridSize, blockSize>>>(in_d, near_mask_d, near_out_d,
+                                    height, width,
+                                    kernel_d, kernel_radius);
+
+    conv2D<<<gridSize, blockSize>>>(in_d, mid_mask_d, mid_out_d,
+                                    height, width,
+                                    kernel_d, kernel_radius);
+
+    conv2D<<<gridSize, blockSize>>>(in_d, far_mask_d, far_out_d,
+                                    height, width,
+                                    kernel_d, kernel_radius);
+    catch_error(cudaDeviceSynchronize());
+    printf("[+] Convolution applied.\n");
+
+    printf("\n[ ] Combining images ...\n");
+    in_blend_h[0] = near_out_d;
+    in_blend_h[1] = mid_out_d;
+    in_blend_h[2] = far_out_d;
+
+    catch_error(cudaMalloc((void **)&in_blend_d, 3 * sizeof(double *)));
+    catch_error(cudaMemcpy(in_blend_d, in_blend_h,
+                           3 * sizeof(double *), cudaMemcpyHostToDevice));
+
+    blend<<<gridSize, blockSize>>>(in_blend_d, out_d, height, width, 3);
+
+    catch_error(cudaDeviceSynchronize());
+    catch_error(cudaMemcpy(out_h, out_d, image_bytes, cudaMemcpyDeviceToHost));
+    printf("[+] Images combined.\n");
+
+    printf("\n[ ] Saving image ...\n");
     // Reusing freed image pointer
-    image = to_whc(out_h, out_width, out_height, channels);
+    image = to_hwc(out_h, height, width, channels);
     // stb returns 0 on failure
-    if (__glibc_unlikely(!save_image(output_path, image, out_width, out_height, channels)))
+    if (__glibc_unlikely(!save_image(output_path, image, height, width, channels)))
     {
         free_image(image);
         fprintf(stderr, "[!] Error saving image.\n");
@@ -188,11 +199,17 @@ int main(int argc, char **argv)
 
     catch_error(cudaFreeHost(kernel_h));
     catch_error(cudaFreeHost(in_h));
+    catch_error(cudaFreeHost(out_h));
 
     catch_error(cudaFree(kernel_d));
+    catch_error(cudaFree(in_blend_d));
+    catch_error(cudaFree(near_mask_d));
+    catch_error(cudaFree(mid_mask_d));
+    catch_error(cudaFree(far_mask_d));
+    catch_error(cudaFree(near_out_d));
+    catch_error(cudaFree(mid_out_d));
+    catch_error(cudaFree(far_out_d));
     catch_error(cudaFree(in_d));
-
-    catch_error(cudaFreeHost(out_h));
     catch_error(cudaFree(out_d));
     return 0;
 }
