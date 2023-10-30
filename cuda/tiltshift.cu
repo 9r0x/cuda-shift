@@ -106,10 +106,10 @@ int main(int argc, char **argv)
     // Prepare GPU
     dim3 blockSize(32, 32);
     dim3 gridSize(channels,
-                  (in_width + blockSize.x - 1) / blockSize.x,
-                  (in_height + blockSize.y - 1) / blockSize.y);
+                  (in_height + blockSize.x - 1) / blockSize.x,
+                  (in_width + blockSize.y - 1) / blockSize.y);
 
-    printf("[+] Grid size: %d, %d\n", gridSize.x, gridSize.y);
+    printf("[+] Grid size: %d, %d, %d\n", gridSize.x, gridSize.y, gridSize.z);
     printf("[+] Block size: %d, %d\n", blockSize.x, blockSize.y);
 
     catch_error(cudaMalloc((void **)&kernel_d, kernel_bytes));

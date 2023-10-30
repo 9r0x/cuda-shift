@@ -56,8 +56,8 @@ __global__ void gen_rectangle_mask(size_t width, size_t height,
                                    size_t top, size_t bottom,
                                    double alpha, double *__restrict__ mask)
 {
-    unsigned int x = blockIdx.y * blockDim.x + threadIdx.x;
-    unsigned int y = blockIdx.z * blockDim.y + threadIdx.y;
+    unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
+    unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
 
     if ((x < width) && (y < height))
     {
@@ -75,8 +75,8 @@ __global__ void apply_mask(double *__restrict__ input,
                            size_t width, size_t height, size_t channels)
 {
     unsigned int c = blockIdx.x;
-    unsigned int x = blockIdx.y * blockDim.x + threadIdx.x;
-    unsigned int y = blockIdx.z * blockDim.y + threadIdx.y;
+    unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
+    unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
 
     if ((x < width) && (y < height))
     {
@@ -96,8 +96,8 @@ __global__ void conv2D(double *__restrict__ input, double *__restrict__ output,
 {
     unsigned int c = blockIdx.x;
     // x and y are width and height of the input image
-    unsigned int x = blockIdx.y * blockDim.x + threadIdx.x;
-    unsigned int y = blockIdx.z * blockDim.y + threadIdx.y;
+    unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
+    unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
     size_t kernel_dim = (kernel_radius << 1) - 1;
     // Since we start from negative offset, use int
     int kernel_offset = kernel_radius - 1;
