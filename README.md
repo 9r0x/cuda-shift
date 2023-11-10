@@ -1,7 +1,5 @@
 # Tilt Shift Effect with Parallel Computing
 
-Shukai Ni, Jiayu Zheng
-
 # Examples
 
 ## Manual
