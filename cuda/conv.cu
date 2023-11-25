@@ -53,21 +53,55 @@ __host__ unsigned char *to_hwc(double *input, int height, int width, int channel
  defined by top, bottom, left, right(boundary inclusive), and 0.0 elsewhere
  bottom = 0 means bottom = height - 1
  right = 0 means right = width - 1
+ feather_distance is the no. of pixel the feathering effect,
+ boundary exclusive(=0 means no feathering)
+ only applied linearly outside the rectangle
 */
 __global__ void gen_rectangle_mask(size_t height, size_t width,
                                    size_t top, size_t bottom,
                                    size_t left, size_t right,
-                                   double alpha, double *__restrict__ mask)
+                                   double *__restrict__ mask,
+                                   size_t feather_distance)
+{
+    unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
+    unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
+    if (bottom == 0)
+        bottom = height - 1;
+    if (right == 0)
+        right = width - 1;
+
+    if ((x < width) && (y < height))
+    {
+        if ((x >= left) && (x <= right) && (y >= top) && (y <= bottom))
+            mask[TO_IDX_2(y, x, width)] = 1.0;
+        else
+        {
+            size_t edge_dist = feather_distance;
+            if (x < left)
+                edge_dist = left - x;
+            else if (x > right)
+                edge_dist = x - right;
+
+            if (y < top)
+                edge_dist = MIN(edge_dist, top - y);
+            else if (y > bottom)
+                edge_dist = MIN(edge_dist, y - bottom);
+
+            mask[TO_IDX_2(y, x, width)] = edge_dist > feather_distance ? 0.0 : 1.0 - (double)edge_dist / (double)feather_distance;
+        }
+    }
+}
+
+__global__ void sum_masks(size_t height, size_t width, double *__restrict__ m1, double *__restrict__ m2, double *__restrict__ m3)
 {
     unsigned int y = blockIdx.y * blockDim.x + threadIdx.x;
     unsigned int x = blockIdx.z * blockDim.y + threadIdx.y;
 
     if ((x < width) && (y < height))
     {
-        if ((x >= left) && (x <= right) && (y >= top) && (y <= bottom))
-            mask[TO_IDX_2(y, x, width)] = alpha;
-        else
-            mask[TO_IDX_2(y, x, width)] = 0.0;
+        double sum = m1[TO_IDX_2(y, x, width)] + m2[TO_IDX_2(y, x, width)] + m3[TO_IDX_2(y, x, width)];
+        if (sum - 1.0 > 1e-6 || sum - 1.0 < -1e-6)
+            printf("x: %d, y: %d: %f\n", x, y, sum);
     }
 }
 
@@ -133,7 +167,7 @@ __global__ void conv2D(double *__restrict__ input,
                 normalization += coeff;
             }
         }
-        output[output_idx] = normalization ? pixel_sum / normalization : 0.0;
+        output[output_idx] = normalization ? pixel_sum / normalization * mask[TO_IDX_2(y, x, width)] : 0.0;
     }
 }
 

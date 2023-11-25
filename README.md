@@ -89,7 +89,7 @@ This solution avoids the problem of padding at the edge of the image because the
 - [x] Per mask Gaussian blur in CUDA
 - [x] Mask blending in CUDA
 - [x] Refactored CUDA functions
-- [ ] Mask-based weighted blending, making sure the overlapping region is blended correctly
+- [ ] Generate masks that is semi-transparent at the edge
 
 - [ ] Improve per pixel dot product in CUDA
 - [ ] Create small vs large CUDA function for different kernel sizes

@@ -139,17 +139,23 @@ int main(int argc, char **argv)
     printf("[+] Memory allocated on device.\n");
 
     printf("\n[ ] Generating masks ...\n");
+    // TODO dynamically adjust and use Macro/var instead of magic number
+    size_t feather_radius = kernel_radius * 4;
     gen_rectangle_mask<<<gridSize, blockSize>>>(height, width,
-                                                0, 60, 0, 600,
-                                                1, near_mask_d);
+                                                0, height / 5, 0, 0,
+                                                near_mask_d, feather_radius);
     gen_rectangle_mask<<<gridSize, blockSize>>>(height, width,
-                                                91, 200, 0, 600,
-                                                1, mid_mask_d);
+                                                height / 5 + feather_radius, 4 * height / 5, 0, 0,
+                                                mid_mask_d, feather_radius);
     gen_rectangle_mask<<<gridSize, blockSize>>>(height, width,
-                                                201, 336, 0, 600,
-                                                1, far_mask_d);
+                                                4 * height / 5 + feather_radius, 0, 0, 0,
+                                                far_mask_d, feather_radius);
     catch_error(cudaDeviceSynchronize());
     printf("[+] Masks generated.\n");
+
+    // sum masks and all should be 1
+    sum_masks<<<gridSize, blockSize>>>(height, width,
+                                       near_mask_d, mid_mask_d, far_mask_d);
 
     printf("\n[ ] Applying convolution ...\n");
     conv2D<<<gridSize, blockSize>>>(in_d, near_mask_d, near_out_d,
