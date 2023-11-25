@@ -158,7 +158,7 @@ int main(int argc, char **argv)
 
     conv2D<<<gridSize, blockSize>>>(in_d, mid_mask_d, mid_out_d,
                                     height, width,
-                                    kernel_d, kernel_radius);
+                                    NULL, 1);
 
     conv2D<<<gridSize, blockSize>>>(in_d, far_mask_d, far_out_d,
                                     height, width,

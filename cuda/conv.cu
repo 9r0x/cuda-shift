@@ -91,6 +91,14 @@ __global__ void conv2D(double *__restrict__ input,
 
     if (x < width && y < height)
     {
+        // Special case: simple pixel copy
+        if (kernel_radius == 1 && kernel == NULL)
+        {
+            output[TO_IDX_3(c, y, x, height, width)] =
+                input[TO_IDX_3(c, y, x, height, width)] * mask[TO_IDX_2(y, x, width)];
+            return;
+        }
+
         int output_idx = TO_IDX_3(c, y, x, height, width);
         if (mask[TO_IDX_2(y, x, width)] == 0.0)
         {
