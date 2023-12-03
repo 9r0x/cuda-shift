@@ -17,7 +17,9 @@ __host__ double *gen_gaussian_kernel(size_t r, double sigma)
         fprintf(stderr, "Failed to allocate memory for gaussian kernel array(s)\n");
         exit(1);
     }
+
 #define sqrt_2pi 2.506628274631000241612355239340104162693023681640625
+#pragma omp parallel for
     for (auto i = 0; i < r; i++)
         gaussian_1d[i] = exp(-((double)(i * i)) / (two_sigma_squared)) / sqrt_2pi / sigma;
 #undef sqrt_2pi
@@ -25,12 +27,14 @@ __host__ double *gen_gaussian_kernel(size_t r, double sigma)
     // (2*r-1) * (r-1) + (r-1) === (r-1) * (2*r)
     // shift is faster than multiplication
     size_t base_idx = ((r - 1) * r) << 1;
+#pragma omp parallel for
     for (auto i = 0; i < r; i++)
     {
+        double gi = gaussian_1d[i];
         for (auto j = i; j < r; j++)
         {
             // Computer upper half of the lower right quarter of the kernel(1/8 of the kernel)
-            double g = gaussian_1d[i] * gaussian_1d[j];
+            double g = gaussian_1d[j] * gi;
             gaussian_2d[base_idx + j] = g;
         }
         //  add within each iter to reduce computation
