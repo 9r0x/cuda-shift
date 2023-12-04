@@ -3,10 +3,10 @@
 # Examples
 
 **Original Image**
-![Example](./Figures/Original.jpg)
+![Example](./figures/Original.jpg)
 
-**Tilt Shift Effect with GIMP**
-![Example](./Figures/Tiltshift.jpg)
+**Tilt Shift Effect**
+![Example](./figures/Tiltshift.jpg)
 
 # Build
 
