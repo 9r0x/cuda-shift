@@ -2,17 +2,11 @@
 
 # Examples
 
-## Manual
-
 **Original Image**
-![Example](./manual/original.jpg)
+![Example](./Figures/Original.jpg)
 
 **Tilt Shift Effect with GIMP**
-![Example](./manual/tiltshift.jpg)
-
-## With CUDA
-
-**TODO**
+![Example](./Figures/Tiltshift.jpg)
 
 # Build
 
@@ -26,12 +20,19 @@ make -j`nproc`
 # Usage
 
 ```
-Usage: ./tiltshift <image_path> <kernel_dim> <sigma> <output_image>
+Usage: ./cuda/bin/tiltshift <input_path> <output_path>
 Arguments:
-  <input_path>    Path to the input image. Supported formats are PNG and JPEG.
-  <kernel_radius> Dimension of the Gaussian kernel radius, center pixel included.
-  <sigma>         Standard deviation of the Gaussian kernel. Must be a positive number.
-  <output_path>  Path to the output image. Format is determined by the file extension.
+  <input_path>    Path to the input image. Supported formats are PNG and JPEG(JPG).
+  <output_path>   Path to the output image. Supported formats are PNG and JPEG(JPG).
+Options:
+  --help         -h         Print this help message.
+  --radius       -r = 10    Dimension of the Gaussian kernel radius, center pixel included.
+  --sigma        -s = 3.0   Standard deviation of the Gaussian kernel. Must be a positive number.
+  --far          -f = 0.2   Lower end of the far mask in height ratio.
+  --near         -n = 0.8   Upper end of the near mask in height ratio.
+  --feather         = 0.1   Feather size in height ratio.
+
+Example: ./cuda/bin/tiltshift input.png -r 5 - s 1.2 output.png
 ```
 
 # Global Workflow
@@ -89,11 +90,9 @@ This solution avoids the problem of padding at the edge of the image because the
 - [x] Per mask Gaussian blur in CUDA
 - [x] Mask blending in CUDA
 - [x] Refactored CUDA functions
-- [ ] Generate masks that is semi-transparent at the edge
+- [x] Generate masks that is semi-transparent at the edge
 
-- [ ] Improve per pixel dot product in CUDA
-- [ ] Create small vs large CUDA function for different kernel sizes
-- [ ] Support 16-bit images
+- [x] Improve per pixel dot product in CUDA
 
 # References
 
